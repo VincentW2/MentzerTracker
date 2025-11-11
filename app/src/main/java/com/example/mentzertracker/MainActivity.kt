@@ -1,4 +1,4 @@
-package com.example.mentzertracker
+package com.vincentlarkin.mentzertracker
 
 import android.content.Context
 import android.os.Bundle
@@ -78,7 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.example.mentzertracker.ui.theme.MentzerTrackerTheme
+import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.launch

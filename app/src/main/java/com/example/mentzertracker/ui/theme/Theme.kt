@@ -1,4 +1,4 @@
-package com.example.mentzertracker.ui.theme
+package com.vincentlarkin.mentzertracker.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme

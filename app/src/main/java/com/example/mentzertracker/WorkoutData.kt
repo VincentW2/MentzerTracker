@@ -1,4 +1,4 @@
-package com.example.mentzertracker
+package com.vincentlarkin.mentzertracker
 
 // Core domain models for workouts
 
