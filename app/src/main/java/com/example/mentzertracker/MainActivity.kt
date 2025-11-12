@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -89,6 +90,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import com.google.gson.Gson
@@ -476,13 +478,20 @@ fun WorkoutBuilderScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             allExercises.forEach { ex ->
+                val checked = aSelections[ex.id] == true
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = checked,
+                            onValueChange = { aSelections[ex.id] = it },
+                            role = Role.Checkbox
+                        )
                 ) {
                     Checkbox(
-                        checked = aSelections[ex.id] == true,
-                        onCheckedChange = { checked -> aSelections[ex.id] = checked },
+                        checked = checked,
+                        onCheckedChange = null,
                         colors = CheckboxDefaults.colors(
                             checkedColor = MaterialTheme.colorScheme.primary,
                             uncheckedColor = MaterialTheme.colorScheme.outline,
@@ -505,13 +514,20 @@ fun WorkoutBuilderScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             allExercises.forEach { ex ->
+                val checked = bSelections[ex.id] == true
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = checked,
+                            onValueChange = { bSelections[ex.id] = it },
+                            role = Role.Checkbox
+                        )
                 ) {
                     Checkbox(
-                        checked = bSelections[ex.id] == true,
-                        onCheckedChange = { checked -> bSelections[ex.id] = checked },
+                        checked = checked,
+                        onCheckedChange = null,
                         colors = CheckboxDefaults.colors(
                             checkedColor = MaterialTheme.colorScheme.primary,
                             uncheckedColor = MaterialTheme.colorScheme.outline,
