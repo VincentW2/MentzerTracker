@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -195,7 +195,8 @@ fun FullProgressScreen(
                 )
                 onUpdateLogs(newLogs)
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            shape = RectangleShape
         ) {
             Text("Save changes")
         }
@@ -213,13 +214,13 @@ fun DateTextField(
     modifier: Modifier = Modifier
 ) {
     val formatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    var showPicker by remember { mutableStateOf(false) }
+    val showPicker = remember { mutableStateOf(false) }
 
     val datePickerState = rememberDatePickerState()
 
-    if (showPicker) {
+    if (showPicker.value) {
         DatePickerDialog(
-            onDismissRequest = { showPicker = false },
+            onDismissRequest = { showPicker.value = false },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -227,14 +228,18 @@ fun DateTextField(
                         if (millis != null) {
                             dateState.value = formatter.format(millis)
                         }
-                        showPicker = false
-                    }
+                        showPicker.value = false
+                        },
+                        shape = RectangleShape
                 ) {
                     Text("OK")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPicker = false }) {
+                    TextButton(
+                    onClick = { showPicker.value = false },
+                        shape = RectangleShape
+                    ) {
                     Text("Cancel")
                 }
             }
@@ -267,7 +272,7 @@ fun DateTextField(
                     interactionSource = interactionSource,
                     indication = null
                 ) {
-                    showPicker = true
+                    showPicker.value = true
                 }
         )
     }

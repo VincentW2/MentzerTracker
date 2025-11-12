@@ -31,12 +31,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -58,6 +58,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,9 +67,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -78,9 +81,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
+import androidx.core.content.edit
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -127,7 +131,7 @@ private fun hasSeenSplash(context: Context): Boolean {
 
 private fun setHasSeenSplash(context: Context) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    prefs.edit().putBoolean(KEY_HAS_SEEN_SPLASH, true).apply()
+    prefs.edit { putBoolean(KEY_HAS_SEEN_SPLASH, true) }
 }
 
 private fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
@@ -144,7 +148,7 @@ private fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
 private fun saveWorkoutLogs(context: Context, logs: List<WorkoutLogEntry>) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = gson.toJson(logs)
-    prefs.edit().putString(KEY_WORKOUT_LOGS, json).apply()
+    prefs.edit { putString(KEY_WORKOUT_LOGS, json) }
 }
 
 private fun hasWorkoutConfig(context: Context): Boolean {
@@ -165,7 +169,7 @@ private fun loadWorkoutConfig(context: Context): UserWorkoutConfig {
 private fun saveWorkoutConfig(context: Context, config: UserWorkoutConfig) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = gson.toJson(config)
-    prefs.edit().putString(KEY_WORKOUT_CONFIG, json).apply()
+    prefs.edit { putString(KEY_WORKOUT_CONFIG, json) }
 }
 private fun loadThemeMode(context: Context): ThemeMode {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -177,9 +181,19 @@ private fun loadThemeMode(context: Context): ThemeMode {
 
 private fun saveThemeMode(context: Context, mode: ThemeMode) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    prefs.edit()
-        .putString(KEY_THEME_MODE, if (mode == ThemeMode.DARK) "dark" else "light")
-        .apply()
+    prefs.edit {
+        putString(KEY_THEME_MODE, if (mode == ThemeMode.DARK) "dark" else "light")
+    }
+}
+
+private fun resetAppData(context: Context) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit {
+        remove(KEY_HAS_SEEN_SPLASH)
+        remove(KEY_WORKOUT_LOGS)
+        remove(KEY_WORKOUT_CONFIG)
+        remove(KEY_THEME_MODE)
+    }
 }
 
 // ---------- ROOT / FLOW CONTROL ----------
@@ -187,22 +201,35 @@ private fun saveThemeMode(context: Context, mode: ThemeMode) {
 fun MentzerApp() {
     val context = LocalContext.current
 
-    var themeMode by remember { mutableStateOf(loadThemeMode(context)) }
-    var showSettings by remember { mutableStateOf(false) }
+    val themeModeState = remember { mutableStateOf(loadThemeMode(context)) }
+    val showSettingsState = remember { mutableStateOf(false) }
+    val resetKeyState = remember { mutableStateOf(0) }
+
+    val themeMode = themeModeState.value
+    val showSettings = showSettingsState.value
+    val resetKey = resetKeyState.value
 
     MentzerTrackerTheme(darkTheme = themeMode == ThemeMode.DARK) {
-        AppRoot(
-            onOpenSettings = { showSettings = true }
-        )
+        key(resetKey) {
+            AppRoot(
+                onOpenSettings = { showSettingsState.value = true }
+            )
+        }
 
         if (showSettings) {
             SettingsDialog(
                 themeMode = themeMode,
                 onThemeModeChange = { newMode ->
-                    themeMode = newMode
+                    themeModeState.value = newMode
                     saveThemeMode(context, newMode)
                 },
-                onDismiss = { showSettings = false }
+                onResetData = {
+                    resetAppData(context)
+                    themeModeState.value = loadThemeMode(context)
+                    resetKeyState.value = resetKeyState.value + 1
+                    showSettingsState.value = false
+                },
+                onDismiss = { showSettingsState.value = false }
             )
         }
     }
@@ -215,15 +242,20 @@ fun AppRoot(
 ) {
     val context = LocalContext.current
 
-    var showSplash by remember { mutableStateOf(!hasSeenSplash(context)) }
-    var workoutConfig by remember { mutableStateOf(loadWorkoutConfig(context)) }
-    var hasConfig by remember { mutableStateOf(hasWorkoutConfig(context)) }
-    var editingConfig by remember { mutableStateOf(false) }
+    val showSplashState = remember { mutableStateOf(!hasSeenSplash(context)) }
+    val workoutConfigState = remember { mutableStateOf(loadWorkoutConfig(context)) }
+    val hasConfigState = remember { mutableStateOf(hasWorkoutConfig(context)) }
+    val editingConfigState = remember { mutableStateOf(false) }
+
+    val showSplash = showSplashState.value
+    val workoutConfig = workoutConfigState.value
+    val hasConfig = hasConfigState.value
+    val editingConfig = editingConfigState.value
 
     // If we're editing an existing config, back should return to main screen
     if (editingConfig && hasConfig) {
         BackHandler {
-            editingConfig = false
+            editingConfigState.value = false
         }
     }
 
@@ -232,7 +264,7 @@ fun AppRoot(
             SplashScreen(
                 onStart = {
                     setHasSeenSplash(context)
-                    showSplash = false
+                    showSplashState.value = false
                 },
                 onOpenSettings = onOpenSettings
             )
@@ -242,13 +274,13 @@ fun AppRoot(
             WorkoutBuilderScreen(
                 initialConfig = workoutConfig,
                 onDone = { newConfig ->
-                    workoutConfig = newConfig
+                    workoutConfigState.value = newConfig
                     saveWorkoutConfig(context, newConfig)
-                    hasConfig = true
-                    editingConfig = false
+                    hasConfigState.value = true
+                    editingConfigState.value = false
                 },
                 showBack = editingConfig && hasConfig,
-                onBack = { editingConfig = false },
+                onBack = { editingConfigState.value = false },
                 onOpenSettings = onOpenSettings
             )
         }
@@ -256,7 +288,7 @@ fun AppRoot(
         else -> {
             WorkoutTrackerApp(
                 config = workoutConfig,
-                onEditWorkouts = { editingConfig = true },
+                onEditWorkouts = { editingConfigState.value = true },
                 onOpenSettings = onOpenSettings
             )
         }
@@ -282,7 +314,9 @@ fun SplashScreen(
         // settings top-right
         IconButton(
             onClick = onOpenSettings,
-            modifier = Modifier.align(Alignment.TopEnd)
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .clip(RectangleShape)
         ) {
             Icon(
                 imageVector = Icons.Filled.Settings,
@@ -307,7 +341,7 @@ fun SplashScreen(
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Button(onClick = onStart) {
+            Button(onClick = onStart, shape = RectangleShape) {
                 Text("Start")
             }
         }
@@ -357,7 +391,10 @@ fun WorkoutBuilderScreen(
                 title = { Text("Build your A / B workouts") },
                 navigationIcon = {
                     if (showBack && onBack != null) {
-                        IconButton(onClick = onBack) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.clip(RectangleShape)
+                        ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back"
@@ -367,7 +404,10 @@ fun WorkoutBuilderScreen(
                 },
                 actions = {
                     if (onOpenSettings != null) {
-                        IconButton(onClick = onOpenSettings) {
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier.clip(RectangleShape)
+                        ) {
                             Icon(
                                 imageVector = Icons.Filled.Settings,
                                 contentDescription = "Settings"
@@ -480,7 +520,8 @@ fun WorkoutBuilderScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp)
+                    .padding(top = 8.dp),
+                shape = RectangleShape
             ) {
                 Text("Save workouts")
             }
@@ -501,7 +542,6 @@ fun WorkoutTrackerApp(
     onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     var selectedTemplateId by remember { mutableStateOf("A") }
 
     // Build templates from current config
@@ -527,12 +567,12 @@ fun WorkoutTrackerApp(
         }
     }
 
-    var showAbout by remember { mutableStateOf(false) }
-    var showFullProgress by remember { mutableStateOf(false) }
+    val showFullProgressState = remember { mutableStateOf(false) }
+    val showFullProgress = showFullProgressState.value
 
     if (showFullProgress) {
         BackHandler {
-            showFullProgress = false
+            showFullProgressState.value = false
         }
     }
 
@@ -542,7 +582,10 @@ fun WorkoutTrackerApp(
                 TopAppBar(
                     title = { Text("Mentzer A/B Tracker") },
                     actions = {
-                        IconButton(onClick = onOpenSettings) {
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier.clip(RectangleShape)
+                        ) {
                             Icon(
                                 imageVector = Icons.Filled.Settings,
                                 contentDescription = "Settings"
@@ -554,9 +597,12 @@ fun WorkoutTrackerApp(
                 TopAppBar(
                     title = { Text("Progress") },
                     navigationIcon = {
-                        IconButton(onClick = { showFullProgress = false }) {
+                        IconButton(
+                            onClick = { showFullProgressState.value = false },
+                            modifier = Modifier.clip(RectangleShape)
+                        ) {
                             Icon(
-                                imageVector = Icons.Filled.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back"
                             )
                         }
@@ -584,7 +630,9 @@ fun WorkoutTrackerApp(
                  onEditWorkouts = onEditWorkouts
              )
 
-             val currentTemplate = templates.first { it.id == selectedTemplateId }
+             val currentTemplate = templates.firstOrNull { it.id == selectedTemplateId }
+                ?: templates.firstOrNull()
+                ?: return@Column
 
              LogWorkoutSection(
                  template = currentTemplate,
@@ -604,7 +652,7 @@ fun WorkoutTrackerApp(
              ProgressSection(
                  logs = logEntries,
                  exercises = allExercises,
-                 onOpenFullScreen = { showFullProgress = true }
+                 onOpenFullScreen = { showFullProgressState.value = true }
              )
          }
         } else {
@@ -640,13 +688,17 @@ fun TemplateSelector(
             templates.forEach { template ->
                 val isSelected = template.id == selectedTemplateId
                 if (isSelected) {
-                    Button(onClick = { onTemplateSelected(template.id) }) {
+                    Button(
+                        onClick = { onTemplateSelected(template.id) },
+                        shape = RectangleShape
+                    ) {
                         Text(template.name)
                     }
                 } else {
                     OutlinedButton(
                         onClick = { onTemplateSelected(template.id) },
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        shape = RectangleShape
                     ) {
                         Text(template.name)
                     }
@@ -654,7 +706,7 @@ fun TemplateSelector(
             }
         }
 
-        TextButton(onClick = onEditWorkouts) {
+        TextButton(onClick = onEditWorkouts, shape = RectangleShape) {
             Text("Edit workouts")
         }
     }
@@ -754,7 +806,8 @@ fun LogWorkoutSection(
                     }
                 }
             },
-            modifier = Modifier.padding(top = 8.dp)
+            modifier = Modifier.padding(top = 8.dp),
+            shape = RectangleShape
         ) {
             Text("Save session")
         }
@@ -785,7 +838,7 @@ fun ProgressSection(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("Progress", style = MaterialTheme.typography.titleMedium)
-        TextButton(onClick = onOpenFullScreen) {
+        TextButton(onClick = onOpenFullScreen, shape = RectangleShape) {
             Text("Full screen")
         }
     }
@@ -866,7 +919,8 @@ fun ProgressSection(
                         IconButton(
                             onClick = {
                                 scope.launch { pagerState.animateScrollToPage(0) }
-                            }
+                            },
+                            modifier = Modifier.clip(RectangleShape)
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.BarChart,
@@ -881,10 +935,11 @@ fun ProgressSection(
                         IconButton(
                             onClick = {
                                 scope.launch { pagerState.animateScrollToPage(1) }
-                            }
+                            },
+                            modifier = Modifier.clip(RectangleShape)
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.List,
+                                imageVector = Icons.AutoMirrored.Filled.List,
                                 contentDescription = "List view",
                                 tint = if (!isGraph)
                                     MaterialTheme.colorScheme.primary
@@ -919,12 +974,14 @@ fun ExerciseDropdown(
     selected: Exercise,
     onSelectedChange: (Exercise) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    val expandedState = remember { mutableStateOf(false) }
+    val expanded = expandedState.value
 
     OutlinedButton(
-        onClick = { expanded = true },
+        onClick = { expandedState.value = true },
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RectangleShape
     ) {
         Text(
             text = selected.name,
@@ -939,14 +996,14 @@ fun ExerciseDropdown(
 
     DropdownMenu(
         expanded = expanded,
-        onDismissRequest = { expanded = false }
+        onDismissRequest = { expandedState.value = false }
     ) {
         exercisesWithHistory.forEach { ex ->
             DropdownMenuItem(
                 text = { Text(ex.name) },
                 onClick = {
                     onSelectedChange(ex)
-                    expanded = false
+                    expandedState.value = false
                 }
             )
         }
@@ -1002,16 +1059,68 @@ fun ExerciseGraphPage(
 fun SettingsDialog(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onResetData: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
+    val showResetConfirmState = remember { mutableStateOf(false) }
+    val showResetConfirm = showResetConfirmState.value
+    val isDarkMode = themeMode == ThemeMode.DARK
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirmState.value = false },
+            title = { Text("Reset data?") },
+            text = {
+                Text(
+                    "This will delete your saved workouts, logs, and splash preferences. " +
+                            "You can configure everything again after the reset."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResetConfirmState.value = false
+                        onResetData()
+                    },
+                    shape = RectangleShape
+                ) {
+                    Text("Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showResetConfirmState.value = false },
+                    shape = RectangleShape
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Settings") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Vincent L · 2025")
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = "App info"
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Vincent L · 2025", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "MentzerTracker is a small app inspired by Mike Mentzer's " +
+                                    "heavy-duty training principles."
+                        )
+                    }
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1019,15 +1128,15 @@ fun SettingsDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Theme")
-
                     IconButton(
                         onClick = {
                             val newMode =
                                 if (themeMode == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK
                             onThemeModeChange(newMode)
-                        }
+                        },
+                        modifier = Modifier.clip(RectangleShape)
                     ) {
-                        if (themeMode == ThemeMode.DARK) {
+                        if (isDarkMode) {
                             Icon(
                                 imageVector = Icons.Filled.DarkMode,
                                 contentDescription = "Dark mode"
@@ -1040,19 +1149,26 @@ fun SettingsDialog(
                         }
                     }
                 }
+
+                Button(
+                    onClick = { showResetConfirmState.value = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RectangleShape
+                ) {
+                    Text("Reset data")
+                }
+
+                TextButton(
+                    onClick = { uriHandler.openUri("https://github.com/VincentW2/MentzerTracker") },
+                    modifier = Modifier.align(Alignment.End),
+                    shape = RectangleShape
+                ) {
+                    Text("GitHub")
+                }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    uriHandler.openUri("https://github.com/VincentW2/MentzerTracker")
-                }
-            ) {
-                Text("GitHub")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = RectangleShape) {
                 Text("Close")
             }
         }
@@ -1063,7 +1179,7 @@ fun SettingsDialog(
 // ---------- GRAPH + TEXT LIST IMPLEMENTATIONS ----------
 private fun paddedMaxWeight(rawMax: Float): Float {
     if (rawMax <= 0f) return 50f
-    val rounded = (kotlin.math.ceil(rawMax / 50f) * 50f).toFloat()
+    val rounded = (kotlin.math.ceil(rawMax / 50f) * 50f)
     return maxOf(150f, rounded)   // baseline “ceiling”
 }
 
