@@ -1,5 +1,6 @@
 package com.vincentlarkin.mentzertracker
 
+import android.app.Activity
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,6 +12,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -55,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
@@ -67,18 +72,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import androidx.core.view.WindowCompat
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.vincentlarkin.mentzertracker.ui.settings.SettingsScreen
@@ -87,6 +99,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 
 class MainActivity : ComponentActivity() {
@@ -214,6 +227,8 @@ fun MentzerApp() {
     val resetKey = resetKeyState.value
 
     MentzerTrackerTheme(darkTheme = themeMode == ThemeMode.DARK) {
+        ApplySystemBarStyle(themeMode = themeMode)
+
         if (showSettings) {
             SettingsScreen(
                 themeMode = themeMode,
@@ -236,6 +251,23 @@ fun MentzerApp() {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ApplySystemBarStyle(themeMode: ThemeMode) {
+    val view = LocalView.current
+    val lightIcons = themeMode == ThemeMode.LIGHT
+    SideEffect {
+        val window = (view.context as? Activity)?.window ?: return@SideEffect
+        @Suppress("DEPRECATION")
+        run {
+            window.statusBarColor = Color.Transparent.toArgb()
+            window.navigationBarColor = Color.Transparent.toArgb()
+        }
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.isAppearanceLightStatusBars = lightIcons
+        controller.isAppearanceLightNavigationBars = lightIcons
     }
 }
 
@@ -1082,7 +1114,16 @@ fun ExerciseLineChart(
         return
     }
 
-    val weights = history.map { it.weight }
+    val orderedHistory = remember(history) {
+        history.sortedWith(
+            compareBy(
+                { parseIsoDateMillis(it.date) ?: Long.MAX_VALUE },
+                { it.sessionIndex }
+            )
+        )
+    }
+
+    val weights = orderedHistory.map { it.weight }
     val rawMax = weights.maxOrNull() ?: 0f
     val yMax = paddedMaxWeight(rawMax)
     val ticks = (0..4).map { i -> yMax * i / 4f }   // 0, 25%, 50%, 75%, 100%
@@ -1090,6 +1131,15 @@ fun ExerciseLineChart(
     val primary = MaterialTheme.colorScheme.primary
     val fillColor = primary.copy(alpha = 0.25f)
     val gridColor = Color.Gray.copy(alpha = 0.25f)
+    val tooltipContainer = MaterialTheme.colorScheme.surfaceVariant
+    val tooltipBorder = MaterialTheme.colorScheme.outline
+    val tooltipTextColor = MaterialTheme.colorScheme.onSurface
+    val chartBackground = MaterialTheme.colorScheme.background
+
+    val density = LocalDensity.current
+    var highlightedIndex by remember(orderedHistory) { mutableStateOf<Int?>(null) }
+    var pointPositions by remember(orderedHistory) { mutableStateOf(emptyList<Offset>()) }
+    var canvasSize by remember(orderedHistory) { mutableStateOf(Size.Zero) }
 
     Row(
         modifier = modifier
@@ -1112,104 +1162,206 @@ fun ExerciseLineChart(
             }
         }
 
-        Canvas(
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .padding(top = 8.dp, bottom = 8.dp, start = 8.dp, end = 8.dp)
         ) {
-            val width = size.width
-            val height = size.height
-
-            val leftPadding = 8.dp.toPx()
-            val rightPadding = 8.dp.toPx()
-            val topPadding = 8.dp.toPx()
-            val bottomPadding = 16.dp.toPx()
-
-            val usableWidth = width - leftPadding - rightPadding
-            val usableHeight = height - topPadding - bottomPadding
-
-            val stepX = if (history.size == 1) 0f else usableWidth / (history.size - 1)
-
-            fun yForWeight(w: Float): Float {
-                val normalized = (w / yMax).coerceIn(0f, 1f)
-                return topPadding + (1f - normalized) * usableHeight
-            }
-
-            val points = history.mapIndexed { index, point ->
-                val x = leftPadding + stepX * index
-                val y = yForWeight(point.weight)
-                Offset(x, y)
-            }
-
-            // Horizontal grid lines
-            ticks.forEach { tickValue ->
-                val y = yForWeight(tickValue)
-                drawLine(
-                    color = gridColor,
-                    start = Offset(leftPadding, y),
-                    end = Offset(width - rightPadding, y),
-                    strokeWidth = 1.dp.toPx()
-                )
-            }
-
-            // X-axis
-            val axisY = yForWeight(0f)
-            drawLine(
-                color = Color.Gray.copy(alpha = 0.6f),
-                start = Offset(leftPadding, axisY),
-                end = Offset(width - rightPadding, axisY),
-                strokeWidth = 2.dp.toPx()
-            )
-
-            // Area + line
-            if (points.size >= 2) {
-                val linePath = Path().apply {
-                    moveTo(points.first().x, points.first().y)
-                    for (i in 1 until points.size) {
-                        lineTo(points[i].x, points[i].y)
+            Canvas(
+                modifier = Modifier
+                    .matchParentSize()
+                    .pointerInput(orderedHistory) {
+                        detectTapGestures { offset ->
+                            val points = pointPositions
+                            if (points.isEmpty()) {
+                                highlightedIndex = null
+                                return@detectTapGestures
+                            }
+                            val threshold = with(density) { 32.dp.toPx() }
+                            val nearest = points
+                                .mapIndexed { index, pt ->
+                                    val dx = pt.x - offset.x
+                                    val dy = pt.y - offset.y
+                                    index to (dx * dx + dy * dy)
+                                }
+                                .minByOrNull { it.second }
+                            if (nearest != null && nearest.second <= threshold * threshold) {
+                                highlightedIndex = nearest.first
+                            } else {
+                                highlightedIndex = null
+                            }
+                        }
                     }
+            ) {
+                canvasSize = size
+
+                val width = size.width
+                val height = size.height
+
+                val leftPadding = 16.dp.toPx()
+                val rightPadding = 12.dp.toPx()
+                val topPadding = 16.dp.toPx()
+                val bottomPadding = 24.dp.toPx()
+
+                val usableWidth = width - leftPadding - rightPadding
+                val usableHeight = height - topPadding - bottomPadding
+
+                val stepX = if (orderedHistory.size == 1) 0f else usableWidth / (orderedHistory.size - 1)
+
+                fun yForWeight(w: Float): Float {
+                    val normalized = (w / yMax).coerceIn(0f, 1f)
+                    return topPadding + (1f - normalized) * usableHeight
                 }
 
-                val fillPath = Path().apply {
-                    moveTo(points.first().x, axisY)
-                    for (pt in points) {
-                        lineTo(pt.x, pt.y)
-                    }
-                    lineTo(points.last().x, axisY)
-                    close()
+                val points = orderedHistory.mapIndexed { index, point ->
+                    val x = leftPadding + stepX * index
+                    val y = yForWeight(point.weight)
+                    Offset(x, y)
                 }
+                pointPositions = points
 
-                drawPath(
-                    path = fillPath,
-                    color = fillColor
-                )
-
-                drawPath(
-                    path = linePath,
-                    color = primary,
-                    style = Stroke(
-                        width = 4.dp.toPx(),
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round
+                // Horizontal grid lines
+                ticks.forEach { tickValue ->
+                    val y = yForWeight(tickValue)
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(leftPadding, y),
+                        end = Offset(width - rightPadding, y),
+                        strokeWidth = 1.dp.toPx()
                     )
+                }
+
+                // X-axis
+                val axisY = yForWeight(0f)
+                drawLine(
+                    color = Color.Gray.copy(alpha = 0.6f),
+                    start = Offset(leftPadding, axisY),
+                    end = Offset(width - rightPadding, axisY),
+                    strokeWidth = 2.dp.toPx()
                 )
+
+                // Area + line
+                if (points.size >= 2) {
+                    val linePath = Path().apply {
+                        moveTo(points.first().x, points.first().y)
+                        for (i in 1 until points.size) {
+                            lineTo(points[i].x, points[i].y)
+                        }
+                    }
+
+                    val fillPath = Path().apply {
+                        moveTo(points.first().x, axisY)
+                        for (pt in points) {
+                            lineTo(pt.x, pt.y)
+                        }
+                        lineTo(points.last().x, axisY)
+                        close()
+                    }
+
+                    drawPath(
+                        path = fillPath,
+                        color = fillColor
+                    )
+
+                    drawPath(
+                        path = linePath,
+                        color = primary,
+                        style = Stroke(
+                            width = 4.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+                }
+
+                val selectedIndex = highlightedIndex
+
+                // Points
+                points.forEachIndexed { index, pt ->
+                    val isSelected = selectedIndex == index
+                    val outerRadius = if (isSelected) 7.dp else 6.dp
+                    val innerRadius = if (isSelected) 4.dp else 3.dp
+                    drawCircle(
+                        color = primary,
+                        radius = outerRadius.toPx(),
+                        center = pt
+                    )
+                    drawCircle(
+                        color = if (isSelected) chartBackground else Color.Black,
+                        radius = innerRadius.toPx(),
+                        center = pt
+                    )
+                }
             }
 
-            // Points
-            points.forEach { pt ->
-                drawCircle(
-                    color = primary,
-                    radius = 6.dp.toPx(),
-                    center = pt
-                )
-                drawCircle(
-                    color = Color.Black,
-                    radius = 3.dp.toPx(),
-                    center = pt
-                )
+            val selectedIndex = highlightedIndex
+            if (selectedIndex != null) {
+                val point = pointPositions.getOrNull(selectedIndex)
+                val session = orderedHistory.getOrNull(selectedIndex)
+                if (point != null && session != null && canvasSize != Size.Zero) {
+                    val tooltipWidth = 160.dp
+                    val tooltipHeight = 72.dp
+                    val verticalGap = 12.dp
+                    val tooltipWidthPx = with(density) { tooltipWidth.toPx() }
+                    val tooltipHeightPx = with(density) { tooltipHeight.toPx() }
+                    val verticalGapPx = with(density) { verticalGap.toPx() }
+
+                    val xPx = (point.x - tooltipWidthPx / 2f).coerceIn(
+                        0f,
+                        canvasSize.width - tooltipWidthPx
+                    )
+                    val yPx = (point.y - tooltipHeightPx - verticalGapPx).coerceAtLeast(0f)
+
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                IntOffset(
+                                    xPx.roundToInt(),
+                                    yPx.roundToInt()
+                                )
+                            }
+                            .width(tooltipWidth)
+                            .background(tooltipContainer, RoundedCornerShape(12.dp))
+                            .border(
+                                width = 1.dp,
+                                color = tooltipBorder,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = friendlyDate(
+                                    dateStr = session.date,
+                                    includeYear = orderedHistory.hasMultipleYears
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = tooltipTextColor,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = weightLabel(session.weight),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tooltipTextColor
+                            )
+                            Text(
+                                text = "${session.reps} rep" + if (session.reps == 1) "" else "s",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tooltipTextColor
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+private fun weightLabel(weight: Float): String {
+    return if (weight % 1f == 0f) {
+        "${weight.toInt()} lbs"
+    } else {
+        "${String.format(Locale.getDefault(), "%.1f", weight)} lbs"
     }
 }
 
@@ -1245,12 +1397,41 @@ fun ExerciseHistoryList(
 // ---------- DATE HELPER ----------
 
 private fun friendlyDate(dateStr: String): String {
+    return friendlyDate(dateStr, includeYear = false)
+}
+
+private fun friendlyDate(dateStr: String, includeYear: Boolean): String {
     return try {
         val inFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val outFmt = SimpleDateFormat("MMM d", Locale.getDefault())
+        val pattern = if (includeYear) "MMM d, yyyy" else "MMM d"
+        val outFmt = SimpleDateFormat(pattern, Locale.getDefault())
         val date = inFmt.parse(dateStr)
         if (date != null) outFmt.format(date) else dateStr
     } catch (_: Exception) {
         dateStr
     }
 }
+
+private fun parseIsoDateMillis(dateStr: String): Long? {
+    return try {
+        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)?.time
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private val List<SessionPoint>.hasMultipleYears: Boolean
+    get() {
+        if (isEmpty()) return false
+        val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val years = mapNotNull {
+            try {
+                formatter.parse(it.date)?.let { date ->
+                    SimpleDateFormat("yyyy", Locale.getDefault()).format(date)
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }.toSet()
+        return years.size > 1
+    }

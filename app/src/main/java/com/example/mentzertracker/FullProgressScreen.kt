@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,7 +102,19 @@ fun FullProgressScreen(
         }.toMutableList()
     }
 
-    val sessionPoints = editableEntries.mapIndexed { idx, entry ->
+    val sortedEntriesForGraph by remember(selectedExercise, logs) {
+        derivedStateOf {
+            editableEntries.sortedWith(
+                compareBy(
+                    { parseIsoDateMillis(it.date.value) ?: Long.MAX_VALUE },
+                    { it.logId },
+                    { it.setIndex }
+                )
+            )
+        }
+    }
+
+    val sessionPoints = sortedEntriesForGraph.mapIndexed { idx, entry ->
         val w = entry.weight.value.toFloatOrNull() ?: 0f
         val r = entry.reps.value.toIntOrNull() ?: 0
         SessionPoint(
@@ -155,7 +168,7 @@ fun FullProgressScreen(
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(editableEntries, key = { it.logId to it.setIndex }) { entry ->
+            items(sortedEntriesForGraph, key = { it.logId to it.setIndex }) { entry ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -290,7 +303,7 @@ fun applyEditsToLogs(
 ): List<WorkoutLogEntry> {
     val editsByLog = edits.groupBy { it.logId }
 
-    return logs.map { log ->
+    val updatedLogs = logs.map { log ->
         val logEdits = editsByLog[log.id] ?: emptyList()
         if (logEdits.isEmpty()) {
             log
@@ -316,5 +329,20 @@ fun applyEditsToLogs(
                 sets = updatedSets.toList()
             )
         }
+    }
+
+    return updatedLogs.sortedWith(
+        compareBy(
+            { parseIsoDateMillis(it.date) ?: Long.MAX_VALUE },
+            { it.id }
+        )
+    )
+}
+
+private fun parseIsoDateMillis(date: String): Long? {
+    return try {
+        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(date)?.time
+    } catch (_: Exception) {
+        null
     }
 }

@@ -235,12 +235,12 @@ fun SettingsScreen(
                 Text("Reset data")
             }
 
-            TextButton(
+            Button(
                 onClick = { uriHandler.openUri("https://github.com/VincentW2/MentzerTracker") },
                 modifier = Modifier.align(Alignment.End),
                 shape = RectangleShape
             ) {
-                Text("GitHub")
+                Text("GitHub Repository")
             }
         }
     }
