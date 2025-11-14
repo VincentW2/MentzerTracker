@@ -42,10 +42,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.vincentlarkin.mentzertracker.BackupSnapshot
 import com.vincentlarkin.mentzertracker.ThemeMode
-import com.vincentlarkin.mentzertracker.UserWorkoutConfig
-import com.vincentlarkin.mentzertracker.WorkoutLogEntry
 import com.vincentlarkin.mentzertracker.gson
+import com.vincentlarkin.mentzertracker.importBackupFromJson
 import com.vincentlarkin.mentzertracker.hasSeenSplash
 import com.vincentlarkin.mentzertracker.loadWorkoutConfig
 import com.vincentlarkin.mentzertracker.loadWorkoutLogs
@@ -64,12 +64,14 @@ private val SettingsScreenPadding = 16.dp
 fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onImportBackup: (ThemeMode) -> Unit,
     onResetData: () -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val showResetConfirmState = remember { mutableStateOf(false) }
+    val showImportConfirmState = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val isDarkMode = themeMode == ThemeMode.DARK
 
@@ -99,7 +101,63 @@ fun SettingsScreen(
         }
     }
 
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    val json = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()
+                            ?.use { it.readText() }
+                    } ?: error("Unable to read backup file.")
+                    importBackupFromJson(context, json)
+                }
+                val message = if (result.isSuccess) {
+                    "Import complete. Reloading backup..."
+                } else {
+                    "Import failed: ${result.exceptionOrNull()?.localizedMessage ?: "unknown error"}"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                result.getOrNull()?.let { onImportBackup(it) }
+            }
+        } else {
+            Toast.makeText(context, "Import canceled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     BackHandler(onBack = onBack)
+
+    if (showImportConfirmState.value) {
+        AlertDialog(
+            onDismissRequest = { showImportConfirmState.value = false },
+            title = { Text("Import backup?") },
+            text = {
+                Text(
+                    "Importing a backup replaces all workouts, logs, and preferences on this device. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showImportConfirmState.value = false
+                        importLauncher.launch(arrayOf("application/json"))
+                    },
+                    shape = RectangleShape
+                ) {
+                    Text("Import")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showImportConfirmState.value = false },
+                    shape = RectangleShape
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     if (showResetConfirmState.value) {
         AlertDialog(
@@ -218,13 +276,21 @@ fun SettingsScreen(
                         "yyyyMMdd-HHmmss",
                         Locale.getDefault()
                     ).format(Date())
-                    val suggestedName = "mentzer-tracker-export-$timestamp.json"
+                    val suggestedName = "mentzer-tracker-backup-$timestamp.json"
                     exportLauncher.launch(suggestedName)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RectangleShape
             ) {
-                Text("Export data")
+                Text("Export backup")
+            }
+
+            Button(
+                onClick = { showImportConfirmState.value = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RectangleShape
+            ) {
+                Text("Import backup")
             }
 
             Button(
@@ -246,20 +312,11 @@ fun SettingsScreen(
     }
 }
 
-private data class ExportSnapshot(
-    val exportedAt: String,
-    val appVersion: String,
-    val themeMode: String,
-    val hasSeenSplash: Boolean,
-    val workoutConfig: UserWorkoutConfig,
-    val workoutLogs: List<WorkoutLogEntry>
-)
-
 internal fun buildExportJson(
     context: Context,
     themeMode: ThemeMode
 ): String {
-    val snapshot = ExportSnapshot(
+    val snapshot = BackupSnapshot(
         exportedAt = SimpleDateFormat(
             "yyyy-MM-dd'T'HH:mm:ssXXX",
             Locale.getDefault()

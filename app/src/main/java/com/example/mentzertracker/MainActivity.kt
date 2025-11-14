@@ -3,17 +3,20 @@ package com.vincentlarkin.mentzertracker
 import android.app.Activity
 import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +45,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -98,7 +102,9 @@ import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import com.vincentlarkin.mentzertracker.ui.settings.SettingsScreen
 import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -144,6 +150,15 @@ private const val KEY_HAS_SEEN_SPLASH = "has_seen_splash"
 private const val KEY_WORKOUT_LOGS = "workout_logs"
 private const val KEY_WORKOUT_CONFIG = "workout_config"
 
+internal data class BackupSnapshot(
+    val exportedAt: String = "",
+    val appVersion: String = "",
+    val themeMode: String = "dark",
+    val hasSeenSplash: Boolean = false,
+    val workoutConfig: UserWorkoutConfig? = null,
+    val workoutLogs: List<WorkoutLogEntry>? = emptyList()
+)
+
 internal val gson = Gson()
 
 internal fun hasSeenSplash(context: Context): Boolean {
@@ -151,9 +166,19 @@ internal fun hasSeenSplash(context: Context): Boolean {
     return prefs.getBoolean(KEY_HAS_SEEN_SPLASH, false)
 }
 
-private fun setHasSeenSplash(context: Context) {
+private fun saveHasSeenSplash(context: Context, seen: Boolean) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    prefs.edit { putBoolean(KEY_HAS_SEEN_SPLASH, true) }
+    prefs.edit {
+        if (seen) {
+            putBoolean(KEY_HAS_SEEN_SPLASH, true)
+        } else {
+            remove(KEY_HAS_SEEN_SPLASH)
+        }
+    }
+}
+
+private fun setHasSeenSplash(context: Context) {
+    saveHasSeenSplash(context, true)
 }
 
 internal fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
@@ -234,6 +259,75 @@ private fun resetAppData(context: Context) {
     }
 }
 
+internal fun importBackupFromJson(
+    context: Context,
+    json: String
+): ThemeMode {
+    val snapshot = parseBackupSnapshot(json)
+    val themeMode = when (snapshot.themeMode.lowercase(Locale.ROOT)) {
+        "light" -> ThemeMode.LIGHT
+        else -> ThemeMode.DARK
+    }
+    val config = snapshot.workoutConfig?.sanitized() ?: defaultWorkoutConfig
+    val logs = sanitizeImportLogs(snapshot.workoutLogs.orEmpty())
+
+    resetAppData(context)
+    saveThemeMode(context, themeMode)
+    saveWorkoutConfig(context, config)
+    saveWorkoutLogs(context, logs)
+    saveHasSeenSplash(context, snapshot.hasSeenSplash)
+
+    return themeMode
+}
+
+private fun parseBackupSnapshot(json: String): BackupSnapshot {
+    val element = JsonParser.parseString(json)
+    if (!element.isJsonObject) {
+        throw IllegalArgumentException("Backup file must be a JSON object.")
+    }
+    val root = element.asJsonObject
+
+    if (!root.has("workoutConfig") || !root.get("workoutConfig").isJsonObject) {
+        throw IllegalArgumentException("Backup file missing workoutConfig.")
+    }
+    val configObject = root.getAsJsonObject("workoutConfig")
+    ensureJsonArray(configObject, "workoutAExerciseIds")
+    ensureJsonArray(configObject, "workoutBExerciseIds")
+    ensureJsonArray(configObject, "customExercises")
+
+    if (!root.has("workoutLogs") || !root.get("workoutLogs").isJsonArray) {
+        root.add("workoutLogs", JsonArray())
+    } else {
+        val logsArray = root.getAsJsonArray("workoutLogs")
+        logsArray.forEach { logElement ->
+            if (logElement.isJsonObject) {
+                val logObject = logElement.asJsonObject
+                ensureJsonArray(logObject, "sets")
+            }
+        }
+    }
+
+    return gson.fromJson(root, BackupSnapshot::class.java)
+        ?: throw IllegalArgumentException("Unable to parse backup.")
+}
+
+private fun ensureJsonArray(obj: com.google.gson.JsonObject, key: String) {
+    if (!obj.has(key) || !obj.get(key).isJsonArray) {
+        obj.add(key, JsonArray())
+    }
+}
+
+private fun sanitizeImportLogs(rawLogs: List<WorkoutLogEntry>): List<WorkoutLogEntry> {
+    return rawLogs.mapNotNull { log ->
+        val sanitizedSets = log.sets.filter { it.exerciseId.isNotBlank() }
+        if (sanitizedSets.isEmpty()) {
+            null
+        } else {
+            log.copy(sets = sanitizedSets)
+        }
+    }
+}
+
 // ---------- ROOT / FLOW CONTROL ----------
 @Composable
 fun MentzerApp() {
@@ -250,6 +344,12 @@ fun MentzerApp() {
     MentzerTrackerTheme(darkTheme = themeMode == ThemeMode.DARK) {
         ApplySystemBarStyle(themeMode = themeMode)
 
+        val handleImport: (ThemeMode) -> Unit = { importedMode ->
+            themeModeState.value = importedMode
+            resetKeyState.value = resetKeyState.value + 1
+            showSettingsState.value = false
+        }
+
         if (showSettings) {
             SettingsScreen(
                 themeMode = themeMode,
@@ -257,6 +357,7 @@ fun MentzerApp() {
                     themeModeState.value = newMode
                     saveThemeMode(context, newMode)
                 },
+                onImportBackup = handleImport,
                 onResetData = {
                     resetAppData(context)
                     themeModeState.value = loadThemeMode(context)
@@ -268,7 +369,8 @@ fun MentzerApp() {
         } else {
             key(resetKey) {
                 AppRoot(
-                    onOpenSettings = { showSettingsState.value = true }
+                    onOpenSettings = { showSettingsState.value = true },
+                    onImportBackup = handleImport
                 )
             }
         }
@@ -295,7 +397,8 @@ private fun ApplySystemBarStyle(themeMode: ThemeMode) {
 
 @Composable
 fun AppRoot(
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onImportBackup: (ThemeMode) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -323,7 +426,8 @@ fun AppRoot(
                     setHasSeenSplash(context)
                     showSplashState.value = false
                 },
-                onOpenSettings = onOpenSettings
+                onOpenSettings = onOpenSettings,
+                onImportBackup = onImportBackup
             )
         }
 
@@ -360,8 +464,71 @@ fun AppRoot(
 @Composable
 fun SplashScreen(
     onStart: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onImportBackup: (ThemeMode) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val showImportConfirm = remember { mutableStateOf(false) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    val json = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()
+                            ?.use { it.readText() }
+                    } ?: error("Unable to read backup file.")
+                    importBackupFromJson(context, json)
+                }
+                val message = if (result.isSuccess) {
+                    "Import complete. Loading backup..."
+                } else {
+                    "Import failed: ${result.exceptionOrNull()?.localizedMessage ?: "unknown error"}"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                if (result.isSuccess) {
+                    onImportBackup(result.getOrThrow())
+                }
+            }
+        } else {
+            Toast.makeText(context, "Import canceled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    if (showImportConfirm.value) {
+        AlertDialog(
+            onDismissRequest = { showImportConfirm.value = false },
+            title = { Text("Import backup?") },
+            text = {
+                Text(
+                    "Importing a backup replaces all workouts, logs, and preferences on this device. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showImportConfirm.value = false
+                        importLauncher.launch(arrayOf("application/json"))
+                    },
+                    shape = RectangleShape
+                ) {
+                    Text("Import")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showImportConfirm.value = false },
+                    shape = RectangleShape
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -400,6 +567,12 @@ fun SplashScreen(
             )
             Button(onClick = onStart, shape = RectangleShape) {
                 Text("Start")
+            }
+            OutlinedButton(
+                onClick = { showImportConfirm.value = true },
+                shape = RectangleShape
+            ) {
+                Text("Import backup")
             }
         }
     }
