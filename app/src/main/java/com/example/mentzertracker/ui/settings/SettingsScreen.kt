@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -89,6 +90,7 @@ fun SettingsScreen(
     val showImportConfirmState = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val isDarkMode = themeMode == ThemeMode.DARK
+    val appVersion = remember { resolveAppVersion(context) }
     var debugExpanded by remember { mutableStateOf(false) }
     val debugChevronRotation by animateFloatAsState(
         targetValue = if (debugExpanded) 90f else 0f,
@@ -329,6 +331,10 @@ fun SettingsScreen(
             }
 
             SettingsSectionHeader("About")
+            SettingsInfoRow(
+                label = "Version",
+                value = appVersion
+            )
             Button(
                 onClick = { uriHandler.openUri("https://github.com/VincentW2/MentzerTracker") },
                 modifier = Modifier.fillMaxWidth(),
@@ -408,6 +414,26 @@ private fun SettingsSectionHeader(title: String) {
             .fillMaxWidth()
             .padding(top = 4.dp, bottom = 6.dp)
     )
+}
+
+@Composable
+private fun SettingsInfoRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
 }
 
 internal fun buildExportJson(
