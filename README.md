@@ -1,6 +1,6 @@
 # MentzerTracker
 
-MentzerTracker is a simple app for planning and logging Mike Mentzer style A/B workouts. Built this for personal workout usage.
+MentzerTracker is a simple Android app for planning and logging Mike Mentzer style A/B workouts. Built this for personal workout usage.
 
 ## Features
 - Quick logging for weight and reps
