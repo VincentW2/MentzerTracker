@@ -6,6 +6,8 @@ MentzerTracker is a simple Android app for planning and logging Mike Mentzer sty
 - Quick logging for weight and reps
 - Light and dark theme
 - Data reset option for a fresh start
+- Customizable workout notifications (Daily, Weekly, or custom intervals) to keep you on track.
+- Smart workout logic notifications (tells you if it's time for Workout A or B).
 
 ## Screenshots
 

@@ -1,5 +1,7 @@
 package com.vincentlarkin.mentzertracker
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.app.Activity
 import android.content.Context
 import android.os.Bundle
@@ -44,8 +46,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -351,11 +357,13 @@ fun MentzerApp() {
     val themeModeState = remember { mutableStateOf(loadThemeMode(context)) }
     val allowPartialSessionsState = remember { mutableStateOf(allowPartialSessions(context)) }
     val showSettingsState = remember { mutableStateOf(false) }
+    val showNotificationsState = remember { mutableStateOf(false) }
     val resetKeyState = remember { mutableStateOf(0) }
 
     val themeMode = themeModeState.value
     val allowPartialSessions = allowPartialSessionsState.value
     val showSettings = showSettingsState.value
+    val showNotifications = showNotificationsState.value
     val resetKey = resetKeyState.value
 
     MentzerTrackerTheme(darkTheme = themeMode == ThemeMode.DARK) {
@@ -391,9 +399,15 @@ fun MentzerApp() {
                 onBack = { showSettingsState.value = false }
             )
         } else {
+            if (showNotifications) {
+                NotificationSettingsDialog(
+                    onDismiss = { showNotificationsState.value = false }
+                )
+            }
             key(resetKey) {
                 AppRoot(
                     onOpenSettings = { showSettingsState.value = true },
+                    onOpenNotifications = { showNotificationsState.value = true },
                     onImportBackup = handleImport,
                     allowPartialSessions = allowPartialSessions
                 )
@@ -423,6 +437,7 @@ private fun ApplySystemBarStyle(themeMode: ThemeMode) {
 @Composable
 fun AppRoot(
     onOpenSettings: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onImportBackup: (ThemeMode) -> Unit,
     allowPartialSessions: Boolean
 ) {
@@ -477,6 +492,7 @@ fun AppRoot(
                 config = workoutConfig,
                 onEditWorkouts = { editingConfigState.value = true },
                 onOpenSettings = onOpenSettings,
+                onOpenNotifications = onOpenNotifications,
                 allowPartialSessions = allowPartialSessions
             )
         }
@@ -1017,6 +1033,7 @@ fun WorkoutTrackerApp(
     config: UserWorkoutConfig,
     onEditWorkouts: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenNotifications: () -> Unit,
     allowPartialSessions: Boolean
 ) {
     val context = LocalContext.current
@@ -1069,6 +1086,15 @@ fun WorkoutTrackerApp(
                 TopAppBar(
                     title = { Text("Mentzer A/B Tracker") },
                     actions = {
+                        IconButton(
+                            onClick = onOpenNotifications,
+                            modifier = Modifier.clip(RectangleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Notifications,
+                                contentDescription = "Notifications"
+                            )
+                        }
                         IconButton(
                             onClick = onOpenSettings,
                             modifier = Modifier.clip(RectangleShape)

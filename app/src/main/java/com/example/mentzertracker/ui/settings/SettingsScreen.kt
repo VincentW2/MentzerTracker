@@ -1,5 +1,6 @@
 package com.vincentlarkin.mentzertracker.ui.settings
 
+
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.RectangleShape
+import com.vincentlarkin.mentzertracker.NotificationHelper
 import com.vincentlarkin.mentzertracker.BackupSnapshot
 import com.vincentlarkin.mentzertracker.ThemeMode
 import com.vincentlarkin.mentzertracker.allowPartialSessions
@@ -63,13 +65,13 @@ import com.vincentlarkin.mentzertracker.importBackupFromJson
 import com.vincentlarkin.mentzertracker.hasSeenSplash
 import com.vincentlarkin.mentzertracker.loadWorkoutConfig
 import com.vincentlarkin.mentzertracker.loadWorkoutLogs
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.text.Charsets
+import kotlinx.coroutines.Dispatchers
 
 private val SettingsScreenPadding = 16.dp
 
@@ -395,6 +397,19 @@ fun SettingsScreen(
                                     checked = isPartialSessionsAllowed,
                                     onCheckedChange = onAllowPartialSessionsChange
                                 )
+                            }
+
+                            // Test Notification
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        NotificationHelper.triggerTestNotification(context)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = primaryButtonShape
+                            ) {
+                                Text("Send Test Notification")
                             }
                         }
                     }
