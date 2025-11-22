@@ -20,6 +20,17 @@ MentzerTracker is a simple Android app for planning and logging Mike Mentzer sty
   <img src="docs/images/light_graph.png" alt="Light mode progress graph" width="280">
 </p>
 
+## Code Layout
+- `MainActivity.kt` – wires together theme, splash/builder/tracker flow, and ties persistence to the UI.
+- `SplashScreen.kt` – welcome screen with backup import and settings shortcut.
+- `TemplateSelector.kt` – simple A/B workout picker and “Edit workouts” entry point.
+- `LogWorkoutSection.kt` – input surface to record sets for the selected template.
+- `ProgressSection.kt` – compact per‑exercise chart/list plus dropdown/tooltip helpers.
+- `FullProgressScreen.kt` – full-screen progress editor with date picker, delete/save controls.
+- `ui/settings/SettingsScreen.kt` – appearance, backup/export, and debug/notification tools.
+- `NotificationSettingsDialog.kt` & `NotificationHelper.kt` – reminder preferences, scheduling, and test notifications.
+- `WorkoutReminderWorker.kt` – WorkManager worker that fires the scheduled reminder notification.
+
 ## Building
 
 1. **Clone the repo**
